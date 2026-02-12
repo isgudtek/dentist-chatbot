@@ -25,19 +25,20 @@ document.addEventListener('DOMContentLoaded', () => {
             Clinic Rules & Dentist Schedules:
             ${dentistRules}
             
-            Booking Rules:
+            Strict Booking Rules:
             1. ALL TIMES ARE LOCAL. When calling tools, generate ISO 8601 strings WITHOUT the 'Z' (e.g., "2026-02-13T10:00:00").
-            2. Reservation Duration: Exactly 1 hour.
-            3. DO NOT DOUBLE BOOK: One doctor = one patient at a time.
-            4. AVAILABILITY: Multiple appointments at the same hour are ONLY okay if they are for DIFFERENT doctors.
-            5. ONLY book a doctor for their specialized service on their available days (see schedule above).
-            6. ALWAYS call 'get_calendar_events' first. If you get a "CONFLICT" error from the tool, it means that doctor is definitely busy. Apologize and offer an alternative.
-            7. STRICT PRIVACY: NEVER share patient names. Just say "Dr. [Name] is occupied".
-            8. REQUIRED INFO: Name, Procedure, and Phone Number.
+            2. Reservation Duration: Exactly 1 hour. (e.g., 10:00:00 to 11:00:00).
+            3. MANDATORY TITLE FORMAT: "Appointment with Dr. [Doctor Name] for [Patient Name] - [Phone Number]". 
+               - If you fail this format, the system will REJECT the booking.
+            4. DO NOT DOUBLE BOOK: One doctor = one patient at a time.
+            5. AVAILABILITY: Multiple appointments at the same hour are ONLY okay if they are for DIFFERENT doctors.
+            6. ONLY book a doctor for their specialized service on their available days.
+            7. ALWAYS call 'get_calendar_events' first. Check the search results: if an event title contains the doctor's name during that hour, they are BUSY.
+            8. STRICT PRIVACY: NEVER share patient names. Just say "Dr. [Name] is occupied".
             
             Conversation Flow:
-            1. Collect Name, Procedure, Phone.
-            2. Check availability for the requested doctor/time.
+            1. Collect Name, Procedure, and Phone Number.
+            2. Check availability via 'get_calendar_events'.
             3. Confirm details clearly before final booking.`
         };
     }
@@ -81,6 +82,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const message = data.choices[0].message;
 
                 if (message.tool_calls) {
+                    // Push the assistant message (with tool_calls) ONCE
+                    messages.push(message);
+
                     for (const toolCall of message.tool_calls) {
                         const functionName = toolCall.function.name;
                         const args = JSON.parse(toolCall.function.arguments);
@@ -92,8 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             result = await handleCreateReservation(args);
                         }
 
-                        // Add tool response to history and ask AI again
-                        messages.push(message);
+                        // Add EACH tool response to history
                         messages.push({
                             role: 'tool',
                             tool_call_id: toolCall.id,
@@ -103,17 +106,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     // Recursive call to get the final AI response after tool execution
-                    const secondResponse = await fetch('api.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ messages: messages })
-                    });
-                    const secondData = await secondResponse.json();
-                    const finalResponse = secondData.choices[0].message.content;
+                    try {
+                        const secondResponse = await fetch('api.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ messages: messages })
+                        });
+                        const secondData = await secondResponse.json();
 
-                    typingMsg.remove();
-                    appendMessage('assistant', finalResponse);
-                    messages.push({ role: 'assistant', content: finalResponse });
+                        typingMsg.remove();
+                        if (secondData.choices && secondData.choices[0]) {
+                            const finalResponse = secondData.choices[0].message.content;
+                            appendMessage('assistant', finalResponse);
+                            messages.push({ role: 'assistant', content: finalResponse });
+                        } else {
+                            appendMessage('assistant', "I hit a snag. Please try again.");
+                        }
+                    } catch (e) {
+                        console.error('Error in second fetch:', e);
+                        typingMsg.remove();
+                        appendMessage('assistant', "Connectivity issue. Retrying might help.");
+                    }
                 } else {
                     typingMsg.remove();
                     const aiResponse = message.content;
@@ -137,8 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const res = await fetch(config.CALENDAR_PROXY_URL);
-            const events = await res.json();
-            return events;
+            return await res.json();
         } catch (e) {
             return { error: "Failed to fetch calendar" };
         }
@@ -148,26 +160,39 @@ document.addEventListener('DOMContentLoaded', () => {
         const config = await fetchConfig();
         if (!config.CALENDAR_PROXY_URL) return { error: "Calendar not configured" };
 
-        const events = await handleGetCalendar();
-        const doctorMatch = args.title.match(/Dr\.\s+(\w+)/i);
-        const requestedDoctor = doctorMatch ? doctorMatch[0] : null;
+        // --- ENFORCE TITLE FORMAT ---
+        const doctorMatch = args.title.match(/Appointment with (Dr\.\s+\w+) for (.+) - (\d{3}-\d{3}-\d{4})/i);
+        if (!doctorMatch) {
+            return {
+                error: "INVALID_TITLE",
+                message: "CRITICAL ERROR: Title MUST be in format 'Appointment with Dr. [Name] for [Patient] - [Phone]'. Fix the title and try again."
+            };
+        }
+        const requestedDoctor = doctorMatch[1]; // e.g., "Dr. Smith"
 
-        if (requestedDoctor && Array.isArray(events)) {
+        // --- HARD CONFLICT CHECK ---
+        const events = await handleGetCalendar();
+        if (Array.isArray(events)) {
             const newStart = new Date(args.startTime).getTime();
             const newEnd = new Date(args.endTime).getTime();
 
             const conflict = events.some(ev => {
                 const evStart = new Date(ev.start).getTime();
                 const evEnd = new Date(ev.end).getTime();
+
                 const isOverlapping = (newStart < evEnd) && (newEnd > evStart);
                 const isSameDoctor = ev.title.includes(requestedDoctor);
+
+                if (isOverlapping && isSameDoctor) {
+                    console.warn(`CONFLICT BLOCK: Dr. ${requestedDoctor} is already booked at ${ev.start} with event: "${ev.title}"`);
+                }
                 return isOverlapping && isSameDoctor;
             });
 
             if (conflict) {
                 return {
                     error: "CONFLICT",
-                    message: `Dr. ${requestedDoctor} is busy at that time. Please suggest another slot.`
+                    message: `Dr. ${requestedDoctor} is literally busy during this range on the calendar. Sugggest a different time or doctor.`
                 };
             }
         }
