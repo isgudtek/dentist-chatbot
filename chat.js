@@ -70,77 +70,67 @@ document.addEventListener('DOMContentLoaded', () => {
         const typingMsg = appendMessage('assistant', '...');
 
         try {
-            const response = await fetch('api.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messages: messages })
-            });
-
-            const data = await response.json();
-
-            if (data.choices && data.choices[0]) {
-                const message = data.choices[0].message;
-
-                if (message.tool_calls) {
-                    // Push the assistant message (with tool_calls) ONCE
-                    messages.push(message);
-
-                    for (const toolCall of message.tool_calls) {
-                        const functionName = toolCall.function.name;
-                        const args = JSON.parse(toolCall.function.arguments);
-
-                        let result;
-                        if (functionName === 'get_calendar_events') {
-                            result = await handleGetCalendar();
-                        } else if (functionName === 'create_reservation') {
-                            result = await handleCreateReservation(args);
-                        }
-
-                        // Add EACH tool response to history
-                        messages.push({
-                            role: 'tool',
-                            tool_call_id: toolCall.id,
-                            name: functionName,
-                            content: JSON.stringify(result)
-                        });
-                    }
-
-                    // Recursive call to get the final AI response after tool execution
-                    try {
-                        const secondResponse = await fetch('api.php', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ messages: messages })
-                        });
-                        const secondData = await secondResponse.json();
-
-                        typingMsg.remove();
-                        if (secondData.choices && secondData.choices[0]) {
-                            const finalResponse = secondData.choices[0].message.content;
-                            appendMessage('assistant', finalResponse);
-                            messages.push({ role: 'assistant', content: finalResponse });
-                        } else {
-                            appendMessage('assistant', "I hit a snag. Please try again.");
-                        }
-                    } catch (e) {
-                        console.error('Error in second fetch:', e);
-                        typingMsg.remove();
-                        appendMessage('assistant', "Connectivity issue. Retrying might help.");
-                    }
-                } else {
-                    typingMsg.remove();
-                    const aiResponse = message.content;
-                    appendMessage('assistant', aiResponse);
-                    messages.push({ role: 'assistant', content: aiResponse });
-                }
-            } else {
-                typingMsg.remove();
-                appendMessage('assistant', "I'm sorry, I'm having trouble connecting to my brain.");
-            }
+            await processAIResponse(typingMsg);
         } catch (error) {
             console.error('Error:', error);
             typingMsg.remove();
             appendMessage('assistant', "Oops! Something went wrong.");
+        }
+    }
+
+    async function processAIResponse(typingMsg) {
+        let response = await fetch('api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages: messages })
+        });
+
+        let data = await response.json();
+
+        while (data.choices && data.choices[0] && data.choices[0].message.tool_calls) {
+            const message = data.choices[0].message;
+            messages.push(message);
+
+            for (const toolCall of message.tool_calls) {
+                const functionName = toolCall.function.name;
+                const args = JSON.parse(toolCall.function.arguments);
+
+                let result;
+                if (functionName === 'get_calendar_events') {
+                    result = await handleGetCalendar();
+                } else if (functionName === 'create_reservation') {
+                    result = await handleCreateReservation(args);
+                }
+
+                messages.push({
+                    role: 'tool',
+                    tool_call_id: toolCall.id,
+                    name: functionName,
+                    content: JSON.stringify(result)
+                });
+            }
+
+            // Get next response from AI
+            response = await fetch('api.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ messages: messages })
+            });
+            data = await response.json();
+        }
+
+        typingMsg.remove();
+
+        if (data.choices && data.choices[0]) {
+            const aiResponse = data.choices[0].message.content;
+            if (aiResponse) {
+                appendMessage('assistant', aiResponse);
+                messages.push({ role: 'assistant', content: aiResponse });
+            } else {
+                appendMessage('assistant', "I apologize, I'm having trouble finding the right words. Let's try again!");
+            }
+        } else {
+            appendMessage('assistant', "I'm sorry, I'm having trouble connecting to my brain.");
         }
     }
 
@@ -161,11 +151,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!config.CALENDAR_PROXY_URL) return { error: "Calendar not configured" };
 
         // --- ENFORCE TITLE FORMAT ---
-        const doctorMatch = args.title.match(/Appointment with (Dr\.\s+\w+) for (.+) - (\d{3}-\d{3}-\d{4})/i);
+        const doctorMatch = args.title.match(/Appointment with (Dr\.\s+\w+) for (.+) - (.*)/i);
         if (!doctorMatch) {
             return {
                 error: "INVALID_TITLE",
-                message: "CRITICAL ERROR: Title MUST be in format 'Appointment with Dr. [Name] for [Patient] - [Phone]'. Fix the title and try again."
+                message: "CRITICAL ERROR: Title MUST be precisely 'Appointment with Dr. [Name] for [Patient] - [Phone]'. Fix the title and call again."
             };
         }
         const requestedDoctor = doctorMatch[1]; // e.g., "Dr. Smith"
@@ -184,7 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const isSameDoctor = ev.title.includes(requestedDoctor);
 
                 if (isOverlapping && isSameDoctor) {
-                    console.warn(`CONFLICT BLOCK: Dr. ${requestedDoctor} is already booked at ${ev.start} with event: "${ev.title}"`);
+                    console.warn(`CONFLICT BLOCK: ${requestedDoctor} is already booked at ${ev.start} with event: "${ev.title}"`);
                 }
                 return isOverlapping && isSameDoctor;
             });
@@ -192,7 +182,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (conflict) {
                 return {
                     error: "CONFLICT",
-                    message: `Dr. ${requestedDoctor} is literally busy during this range on the calendar. Sugggest a different time or doctor.`
+                    message: `${requestedDoctor} is busy during this range. Suggest a different time.`
                 };
             }
         }
