@@ -143,7 +143,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const res = await fetch(config.CALENDAR_PROXY_URL);
-            return await res.json();
+            const events = await res.json();
+
+            // MAP TO LOCAL ISO (WALL TIME)
+            // This satisfies the "User and Calendar in same timezone" by 
+            // removing the Z/UTC offset and showing the local numeric values.
+            if (Array.isArray(events)) {
+                return events.map(ev => {
+                    // Convert date to local ISO string, then strip the 'Z'
+                    const dateObj = new Date(ev.start);
+                    // Adjust for local timezone offset manually to get a "Local ISO" string
+                    const offset = dateObj.getTimezoneOffset() * 60000;
+                    const localISOTime = (new Date(dateObj - offset)).toISOString().slice(0, -1);
+
+                    const endDateObj = new Date(ev.end);
+                    const localISOEndTime = (new Date(endDateObj - offset)).toISOString().slice(0, -1);
+
+                    return {
+                        title: ev.title,
+                        start: localISOTime,
+                        end: localISOEndTime
+                    };
+                });
+            }
+            return events;
         } catch (e) {
             return { error: "Failed to fetch calendar" };
         }
@@ -154,15 +177,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!config.CALENDAR_PROXY_URL) return { error: "Calendar not configured" };
 
         // --- ENFORCE TITLE FORMAT WITH REASON ---
-        // Expected: "Appointment with Dr. Smith for Mario (Reason: Checkup) - 123456"
-        const doctorMatch = args.title.match(/Appointment with (Dr\.\s+\w+) for/i);
+        // We look for "Dr. [Name]" anywhere in the title to be permissive with previous bookings
+        const doctorMatch = args.title.match(/Dr\.\s+(\w+)/i);
         if (!doctorMatch) {
             return {
                 error: "INVALID_TITLE",
-                message: "CRITICAL ERROR: Title MUST be 'Appointment with Dr. [Name] for [Patient] (Reason: [Reason]) - [Phone]'. Fix it and retry."
+                message: "CRITICAL ERROR: Title MUST include 'Dr. [Name]'. Fix it and retry."
             };
         }
-        const requestedDoctor = doctorMatch[1];
+        const requestedDoctor = doctorMatch[0];
 
         // --- HARD CONFLICT CHECK ---
         const events = await handleGetCalendar();
