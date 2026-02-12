@@ -35,11 +35,14 @@ document.addEventListener('DOMContentLoaded', () => {
             6. ONLY book a doctor for their specialized service on their available days.
             7. ALWAYS call 'get_calendar_events' first. Check the search results: if an event title contains the doctor's name during that hour, they are BUSY.
             8. STRICT PRIVACY: NEVER share patient names. Just say "Dr. [Name] is occupied".
+            9. CONFIRM BEFORE BOOKING: Once you have the availability and user details, you MUST recap EVERYTHING (Doctor, Time, Patient, Procedure, Phone) and ask: "Would you like me to book it?" 
+               - DO NOT call 'create_reservation' until the user says "Yes" or "Confirm".
             
             Conversation Flow:
             1. Collect Name, Procedure, and Phone Number.
             2. Check availability via 'get_calendar_events'.
-            3. Confirm details clearly before final booking.`
+            3. Recap findings and ask for final confirmation: "Would you like me to book it?"
+            4. Wait for user confirmation before calling 'create_reservation'.`
         };
     }
 
