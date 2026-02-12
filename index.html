@@ -1,14 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SmileCare Dental Clinic - Reservations</title>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
     <div class="overlay"></div>
-    
+
     <header>
         <div class="logo">SmileCare Dental</div>
         <nav>
@@ -26,8 +28,17 @@
     <!-- Chatbot Widget -->
     <div id="chat-widget">
         <div id="chat-header">
-            <img src="https://cdn-icons-png.flaticon.com/512/3467/3467831.png" alt="Dentist Bot">
-            <span>Dr. Smile Assistant</span>
+            <div class="header-info">
+                <img src="https://cdn-icons-png.flaticon.com/512/3467/3467831.png" alt="Dentist Bot">
+                <span>Dr. Smile Assistant</span>
+            </div>
+            <div class="tts-toggle">
+                <label class="switch">
+                    <input type="checkbox" id="tts-checkbox">
+                    <span class="slider round"></span>
+                </label>
+                <span class="tts-label">Voice</span>
+            </div>
         </div>
         <div id="chat-messages">
             <div class="message assistant">
@@ -42,4 +53,5 @@
 
     <script src="chat.js"></script>
 </body>
+
 </html>

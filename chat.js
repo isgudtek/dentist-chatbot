@@ -5,6 +5,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatMessages = document.getElementById('chat-messages');
 
     let dentistConfig = null;
+    let ttsEnabled = false;
+
+    const ttsCheckbox = document.getElementById('tts-checkbox');
+
+    ttsCheckbox.addEventListener('change', (e) => {
+        ttsEnabled = e.target.checked;
+        if (!ttsEnabled) {
+            window.speechSynthesis.cancel();
+        }
+    });
 
     async function loadConfig() {
         try {
@@ -13,6 +23,26 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
             console.error("Failed to load dentists.json", e);
         }
+    }
+
+    function speak(text) {
+        if (!ttsEnabled) return;
+
+        // Cancel any existing speech
+        window.speechSynthesis.cancel();
+
+        const utterance = new SpeechSynthesisUtterance(text);
+
+        // Find a professional-sounding voice (prefer English/Local)
+        const voices = window.speechSynthesis.getVoices();
+        // Try to find a specific nice voice or just use default
+        const preferredVoice = voices.find(v => v.name.includes('Google') || v.name.includes('Natural')) || voices[0];
+        if (preferredVoice) utterance.voice = preferredVoice;
+
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+
+        window.speechSynthesis.speak(utterance);
     }
 
     function getSystemPrompt() {
@@ -129,6 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (aiResponse) {
                 appendMessage('assistant', aiResponse);
                 messages.push({ role: 'assistant', content: aiResponse });
+                speak(aiResponse); // Trigger TTS
             } else {
                 appendMessage('assistant', "I apologize, I'm having trouble finding the right words. Let's try again!");
             }
