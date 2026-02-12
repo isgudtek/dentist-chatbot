@@ -1,0 +1,5 @@
+config.php
+.system_generated/
+.gemini/
+*.log
+node_modules/

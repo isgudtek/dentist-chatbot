@@ -1,0 +1,22 @@
+{
+    "dentists": [
+        {
+            "name": "Dr. Smith",
+            "specialization": "General Dentistry",
+            "availability": ["Monday", "Tuesday", "Wednesday"],
+            "hours": "09:00 - 18:00"
+        },
+        {
+            "name": "Dr. Jones",
+            "specialization": "Orthodontics",
+            "availability": ["Tuesday", "Wednesday", "Thursday"],
+            "hours": "09:00 - 18:00"
+        },
+        {
+            "name": "Dr. Garcia",
+            "specialization": "Pediatric Dentistry",
+            "availability": ["Friday"],
+            "hours": "09:00 - 18:00"
+        }
+    ]
+}
